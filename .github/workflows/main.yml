@@ -1,71 +1,27 @@
-name: PSYCHO Cloudflare RDP
+name: Window 10
 
-on:
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
-  rdp:
+  build:
+
     runs-on: windows-latest
-    timeout-minutes: 3600
+    timeout-minutes: 9999
+
 
     steps:
-      - name: Configure RDP Settings
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Restart-Service -Name TermService -Force
-
-      - name: Create RDP User
-        run: |
-          $username = "CLOUD_PSYCHO"
-          $password = "Psycho@2026#"
-          
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          
-          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
-              Set-LocalUser -Name $username -Password $securePass
-          } else {
-              New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
-              Add-LocalGroupMember -Group "Administrators" -Member $username
-              Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          }
-
-      - name: Install and Start Cloudflare Tunnel
-        run: |
-          # Download cloudflared
-          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "$env:TEMP\cloudflared.exe"
-          
-          # Start Tunnel in Background and log output to file
-          Start-Process -FilePath "$env:TEMP\cloudflared.exe" -ArgumentList "tunnel --url rdp://localhost:3389" -RedirectStandardError "$env:TEMP\cloudflared.log" -WindowStyle Hidden
-          
-          # Wait and fetch URL from log file
-          $url = $null
-          $retries = 0
-          while (-not $url -and $retries -lt 15) {
-              Start-Sleep -Seconds 3
-              if (Test-Path "$env:TEMP\cloudflared.log") {
-                  $content = Get-Content "$env:TEMP\cloudflared.log" -Raw
-                  if ($content -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') {
-                      $url = $matches[0]
-                  }
-              }
-              $retries++
-          }
-
-          if (-not $url) {
-              Write-Error "Cloudflare Tunnel failed to start!"
-              exit 1
-          }
-
-          Write-Host "`n=============================================="
-          Write-Host "CONNECT ADDRESS : $url"
-          Write-Host "USERNAME        : CLOUD_PSYCHO"
-          Write-Host "PASSWORD        : Psycho@2026#"
-          Write-Host "==============================================`n"
-
-      - name: Maintain Loop
-        run: |
-          while ($true) {
-              Write-Host "[$(Get-Date)] Cloudflare RDP Session Active"
-              Start-Sleep -Seconds 300
-          }
+    - name: Download
+      run: Invoke-WebRequest https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract
+      run: Expand-Archive ngrok.zip
+    - name: Auth
+      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "@cyb3rking" -Force)
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp 3389
