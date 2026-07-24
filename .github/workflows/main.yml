@@ -1,60 +1,37 @@
-name: PSYCHO Ngrok RDP
-
-on:
-  workflow_dispatch:
-
-jobs:
-  rdp:
-    runs-on: windows-latest
-    timeout-minutes: 3600
-
-    steps:
-      - name: Configure RDP Settings
+- name: Install and Start Ngrok
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Restart-Service -Name TermService -Force
-
-      - name: Create RDP User
-        run: |
-          $username = "CLOUD_PSYCHO"
-          $password = "Psycho@2026#"
-          
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          
-          if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
-              Set-LocalUser -Name $username -Password $securePass
-          } else {
-              New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
-              Add-LocalGroupMember -Group "Administrators" -Member $username
-              Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          }
-
-      - name: Install and Start Ngrok
-        run: |
-          # Chocolatey দিয়ে ঝামেলামুক্ত Ngrok ইন্সটল
+          # Chocolatey দিয়ে Ngrok ইন্সটল
           choco install ngrok -y
           
           # Authtoken সেটআপ
           ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
           
-          # ব্যাকগ্রাউন্ডে Ngrok চালানো
-          Start-Process -FilePath "ngrok" -ArgumentList "tcp 3389"
-          Start-Sleep -Seconds 7
+          # ব্যাকগ্রাউন্ডে Ngrok চালু করা
+          Start-Process -FilePath "ngrok" -ArgumentList "tcp 3389" -WindowStyle Hidden
           
-          # Ngrok পাবলিক IP এবং পোর্ট বের করা
-          $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels"
-          $address = $response.tunnels[0].public_url -replace 'tcp://', ''
+          # Ngrok API তৈরি হওয়া পর্যন্ত অপেক্ষা ও রিট্রাই করা
+          $address = $null
+          $retries = 0
+          while (-not $address -and $retries -lt 12) {
+              Start-Sleep -Seconds 3
+              try {
+                  $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
+                  if ($response.tunnels.Length -gt 0) {
+                      $address = $response.tunnels[0].public_url -replace 'tcp://', ''
+                  }
+              } catch {
+                  Write-Host "Waiting for Ngrok API to start... ($retries)"
+              }
+              $retries++
+          }
+
+          if (-not $address) {
+              Write-Error "Ngrok start failed or Auth Token is invalid!"
+              exit 1
+          }
           
-          Write-Host "`n==============================================`n"
+          Write-Host "`n=============================================="
           Write-Host "CONNECT ADDRESS : $address"
           Write-Host "USERNAME        : CLOUD_PSYCHO"
           Write-Host "PASSWORD        : Psycho@2026#"
-          Write-Host "`n==============================================`n"
-
-      - name: Maintain Loop
-        run: |
-          while ($true) {
-              Write-Host "[$(Get-Date)] RDP Session Active"
-              Start-Sleep -Seconds 300
-          }
+          Write-Host "==============================================`n"
