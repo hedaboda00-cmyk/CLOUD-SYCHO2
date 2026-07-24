@@ -6,7 +6,7 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 360 # GitHub Free Runner Max Limit (6 Hours)
+    timeout-minutes: 360
 
     steps:
       - name: Configure Core RDP Settings
@@ -20,13 +20,14 @@ jobs:
 
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User with Custom Password
+      - name: Create Custom User & Hide/Disable runneradmin
         run: |
           $username = "CLOUD_PSYCHO"
           $password = "PSYCHO@123"
           
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           
+          # ১. নতুন ইউজার তৈরি বা পাসওয়ার্ড সেট করা
           if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
               Add-LocalGroupMember -Group "Administrators" -Member $username
@@ -34,6 +35,16 @@ jobs:
           } else {
               Set-LocalUser -Name $username -Password $securePass
           }
+          
+          # ২. runneradmin ইউজারকে Disable করে দেওয়া যাতে লগইন স্ক্রিনে না দেখায়
+          Disable-LocalUser -Name "runneradmin" -ErrorAction SilentlyContinue
+
+          # ৩. Windows Registry দিয়ে runneradmin ইউজারকে RDP/Login লিস্ট থেকে সম্পূর্ণ হাইড করা
+          $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList"
+          if (-not (Test-Path $RegPath)) {
+              New-Item -Path $RegPath -Force
+          }
+          Set-ItemProperty -Path $RegPath -Name "runneradmin" -Value 0 -Type DWord -Force
           
           echo "RDP_USER=$username" >> $env:GITHUB_ENV
           echo "RDP_PASS=$password" >> $env:GITHUB_ENV
