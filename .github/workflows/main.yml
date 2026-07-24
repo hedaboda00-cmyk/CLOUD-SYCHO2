@@ -31,8 +31,8 @@ jobs:
 
       - name: Create RDP User with Custom Password
         run: |
-          $username = "CLOUD_PSYCHO"
-          $password = "PSYCHO@123"
+          $username = "PSYCHO"
+          $password = "PSYCHO"
           
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           
